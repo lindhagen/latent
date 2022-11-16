@@ -1,11 +1,11 @@
 Package: latent
 Type: Package
 Title: Effect estimation in latent subgroups
-Version: 0.1.0
+Version: 1.0.0
 Author: Lars Lindhagen
 Maintainer: Lars Lindhagen <lars.lindhagen@ucr.uu.se>
 Description: A modular framework for effect estimation in latent subgroups.
-License: GPL-3
+License: MIT
 LazyData: TRUE
 Encoding: UTF-8
 Suggests: knitr,
