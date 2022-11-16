@@ -1,0 +1,696 @@
+%% Compile with devtools::build_vignettes(clean = F)
+%\VignetteEngine{knitr::knitr}
+%\VignetteIndexEntry{weights}
+%\VignetteEncoding{UTF-8}
+\documentclass{article}
+\addtolength{\hoffset}{-1cm}
+\addtolength{\textwidth}{2cm}
+\usepackage{amsmath}
+\usepackage{newfloat}
+\usepackage{float}
+\DeclareFloatingEnvironment[name = Output]{routput}
+
+\newcommand{\al}{\alpha}
+\newcommand{\be}{\beta}
+\newcommand{\eps}{\epsilon}
+\newcommand{\sig}{\sigma}
+\newcommand{\tht}{\theta}
+\newcommand{\vtht}{\vartheta}
+\newcommand{\logit}{\operatorname{logit}}
+
+
+\title{Effect estimation in latent subgroups}
+\author{Lars Lindhagen}
+
+<<"setup", cache = FALSE, echo = FALSE, include = FALSE>>=
+library(knitr)
+opts_chunk$set(include = TRUE,
+    echo = TRUE,
+    cache = TRUE)
+@
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This vignette gives a brief description of the package \texttt{latent},
+with examples of how to use it. Below follows a short summary of the setting,
+for details, we refer to \cite{lindhagen_ostlund} and the
+references therein.
+
+Consider a randomized trial, where patients are randomized to a screening
+procedure for a certain, treatable, condition. If the condition is
+detected, appropriate treatment is given; otherwise no action is taken.
+An example is the HELP-MI trial \cite{help_mi},
+where myocardial infarction patients are
+randomized to screening for Helicobacter pylori (HP) with subsequent
+eradication to reduce the risk of gastro-intestinal bleedings
+due to anticoagulant treatment.
+
+A natural scientific question in such a trial is the treatment effect
+among the patients who could actually receive the treatment in question.
+In the HELP-MI trial, this would be the HP-infected patients. We shall
+refer to this subgroup as the \emph{treatable} subgroup.
+
+The problem is that this subgroup is not identified in the control arm, it is
+latent. It is, however, perfectly possible to perform maximum likelihood (ML)
+estimation of this effect, and the current package is intened to help the
+user carry out such estimation in a variety of settings.
+
+
+\subsection{Notation}
+
+Let $G$ be an indicator for membership of the latent subgroup:
+$G = 1$ for treatable patients, and $G = 0$ for untreatable ones. Moreover,
+$R$ is the randomization indicator: $R = 1$ for the screening arm and
+$R = 0$ for controls. Finally, $x$ is a vector of pre-randomization covariates,
+whereas $Y$ denotes the outcome, recorded after randomization.
+
+
+\subsection{The framework}
+
+The methods of the package rests on three statistical models, specified by the
+user. The core of the package then performs ML estimation of the treatment
+effect in the latent subgroup, relying on the EM algorithm.
+The three models to be specified are the following:
+\begin{enumerate}
+\item A subgroup model, modeling membership of the latent subgroup.
+\item An outcome model for untreatable patients ($G = 0$).
+\item An outcome model for treatable patients ($G = 1$).
+\end{enumerate}
+The subgroup model has a dichotomous outcome $G$, whereas the outcome for the
+other models is whatever outcome $Y$ is recorded in the study. It can for
+example be numerical, dichotmous or a time to event outcome.
+All models can use any number of covariates as predictors of subgroup or outcome
+to increase the precision. However, the model for treatable patients will
+always contain randomization, which the model for untreatable patients
+will not.
+
+
+\section{How to use the package}
+
+We shall illustrate the usage of the package by simulating and analyzing data
+in a variety of settings. All simulations will use correctly specified models.
+In other words, we will generate data from the same models as we later use to
+analyze them. Some example of the performance of the framework under
+misspecified models can be found in \cite{lindhagen_ostlund}.
+
+
+\subsection{A basic example}
+\label{sec:basic_example}
+
+As a first basic example, consider a numerical outcome without any
+covariates. We model subgroup membership using logistic regression, and the
+outcomes using linear regression. In the absence of covariates, these models
+simply read
+\begin{equation}
+\label{eq:models_basic}
+\left \{
+\begin{aligned}
+\logit P(G = 1) &= \al_S \\
+Y &= \al_0 + \eps, \qquad &G = 0, \\
+Y &= \al_1 + \psi R + \eps, \qquad &G = 1, \\
+\end{aligned}
+\right.
+\end{equation}
+where $\logit p = p / (1 - p)$, and
+$\eps$ are centred normal residuals with standard deviations
+$\sig_0$ and $\sig_1$. (Since the two outcome models are completely
+separate, we allow for different residual standard deviations.)
+The sought treatment effect is $\psi$.
+
+<<"prepare", echo = F>>=
+r3 <- function(x) sprintf("%.3f", x) # Three decimals.
+logit <- function(p) log(p / (1 - p))
+logit025 <- logit(0.25)
+@
+
+As for the parameter values, we follow one of the simulations in
+\cite{lindhagen_ostlund}. Thus, we shall generate data on $n = 3000$ patients,
+with a subgroup prevalence of 25\%.
+Hence, $\al_S = \logit 0.25 = \Sexpr{r3(logit025)}$.
+Moreover, we let $\al_0 = 100$,
+$\al_1 = 100.4$, $\sig_0 = 2$, and $\sig_1$ = 2.5. Finally, the treatmant
+effect is $\psi = -0.4$, making the treatable patients similar to the
+untreatable ones provided that they receive treatment.
+
+We begin with some setup, including loading the \texttt{latent} package:
+\begin{routput}[H]
+<<"load-packages">>=
+library(latent)
+set.seed(12345) # For repeatability.
+n <- 3000 # Number of patients.
+@
+\end{routput}
+
+\noindent
+Next, we create the ''true'' data, containing the latent subgroup.
+\begin{routput}[H]
+<<"basic-true-data">>=
+df_true <- data.frame(
+    g = rbinom(n, size = 1, prob = 0.25), # Latent subgroup (still observed).
+    rand = rbinom(n = n, size = 1, prob = 0.5)) # Randomization.
+# Outcome.
+df_true$y <- ifelse(df_true$g == 0,
+    rnorm(n, mean = 100, sd = 2),
+    rnorm(n, mean = 100.4 - 0.4 * df_true$rand, sd = 2.5))
+head(df_true)
+@
+\end{routput}
+
+\noindent
+In reality, the subgroup $G$ is only observed in the screening arm ($R = 1$).
+So we remove the information on it in the control arm, giving us the analysis
+database that we would actually observe in the study:
+\begin{routput}[H]
+<<basic-remove-latent-subgroup>>=
+df_obs <- df_true
+df_obs$g <- ifelse(df_obs$rand == 1, df_obs$g, NA)
+head(df_obs)
+@
+\end{routput}
+
+\noindent
+The subgroup is now missing whenever $R = 0$.
+
+We now set up the three statistical models required by the
+framework~(\ref{eq:models_basic}).
+We begin with the logistic regression model for subgroup membership:
+\begin{routput}[H]
+<<basic-subgroup-model>>=
+modelS <- latent_glm(
+    formula = (g ~ 1),
+    family_name = "binomial",
+    link = "logit",
+    coef_names = "alphaS")
+@
+\end{routput}
+
+\noindent
+Note that the outcome of this model is the subgroup $G$, coded as the variable
+\texttt{g}. We have not added
+any covariates, hence the trivial analysis formula \verb+g ~ 1+.
+We conveniently choose to denote the single regression coefficient $\al_S$
+by \texttt{alphaS}. The residual variance $\sig^2$ will automatically be named
+\texttt{sigma2}.
+
+Next, we add the two linear models for the outcome.
+\begin{routput}[H]
+<<basic-outcome-models>>=
+model0 <- latent_linear(
+    formula = (y ~ 1),
+    coef_names = "alpha0")
+model1 <- latent_linear(
+    formula = (y ~ rand),
+    coef_names = c("alpha1", "psi"))
+@
+\end{routput}
+
+\noindent
+The first model again has a trivial analysis formula with a sole intercept,
+but the outcome is now the study outcome \texttt{y}.
+In the second model, however, the outcome depends
+on randomization, resulting in an additional coefficient \texttt{psi},
+corresponding to the treatment effect $\psi$.
+
+We are now ready to perform the analysis. This done by simply passing the
+three models, together with the data, to the package main function:
+\begin{routput}[H]
+<<basic-analysis>>=
+res <- latent_main(
+    data = df_obs,
+    modelS = modelS,
+    model0 = model0,
+    model1 = model1)
+res
+@
+\end{routput}
+
+<<echo = F>>=
+alS <- res$theta["thetaS.alphaS"]
+alSr <- r3(alS)
+basic_prev <- exp(alS) / (1 + exp(alS))
+sig02 <- res$theta["theta0.sigma2"]
+sig0 <- sqrt(sig02)
+b <- res$theta["theta1.psi"]
+@
+
+\noindent
+The result is a list with two elements: \texttt{theta} and \texttt{info}.
+The former is the vector $\tht = (\vtht_S, \vtht_0, \vtht_1)$ of all model
+parameters of the three statistical models, and the latter is the
+corresponding Fisher information matrix.
+
+A word on the model parameters: The first one, $\vtht_S$ (denoted
+\texttt{thetaS} by the package) consists of all parameters of the subgroup
+model. In the current example, this is just the intercept $\al_S$.
+Similarly, $\vtht_0$ and $\vtht_1$ are the model parameters of the two outcome
+models. The former has two elements: $\vtht_0 = (\al_0, \sig_0^2)$,
+whereas the latter has three: $\vtht_1 = (\al_1, \psi, \sig_1^2)$.
+This gives a totality of six model parameters in $\tht$.
+
+The Fisher information matrix is the negative Hessian of the log-likelihood
+with respect to $\tht$. In our example, this
+is a $6 \times 6$ matrix. The inverse of this is the
+covariance matrix, whose diagonal elements are the squared standard errors
+of the parameters in $\tht$.
+
+The parameter names in \textsf{R} consist of
+two parts. The first part tells us to which model the parameter refers
+(e.g.\ \texttt{thetaS} for the subgroup model with parameters $\vtht_S$).
+This is selected automatically by the package. The second part
+(e.g.\ \texttt{alphaS}) was chosen by ourselves when we created
+the model objects.
+
+From the output, we can read that the estimate of $\al_S$ is
+\Sexpr{alSr} (\texttt{thetaS.alphaS}), corresponding to a subgroup prevalece of
+$e^{\Sexpr{alSr}} / (1 + e^{\Sexpr{alSr}}) = \Sexpr{r3(basic_prev)}$.
+This is more or less identical to the true prevalance of~25\%, which is not
+too surprising, considering that the prevalence is directly observable in the
+screening arm. Adding the control arm, where it is not, only improves things
+somewhat. Similarly, we can see that the residual variance in the
+control arm (\texttt{theta0.sigma2}) is estimated to \Sexpr{r3(sig02)},
+corresponding to a standard deviation of
+$\sqrt{\Sexpr{r3(sig02)}} = \Sexpr{r3(sig0)}$,
+close to the true value $\sig_0 = 2$.
+
+But the most important parameter, representing the treatment effect in the
+latent subgroup, is $\psi$ in $\vtht_1$, denoted
+\texttt{theta1.psi}. We see that the point estimate of this
+is $\hat{\psi} = \Sexpr{r3(b)}$
+(recall that the true value is -0.4). An asymptotic 95\% Wald confidence
+interval for this can be computed as $\hat{\psi} \pm 1.96 \times \textup{SE}$,
+where the standard error SE is found by inverting the Fisher information matrix:
+\begin{routput}[H]
+<<basic-confidence-interval>>=
+se <- sqrt(diag(solve(res$info)))
+se
+@
+\end{routput}
+
+<<echo = F>>=
+se5 <- se[5]
+z <- b / se5
+p <- 2 * pnorm(abs(z), lower.tail = F)
+@
+
+\noindent
+So the standard error of $\hat{\psi}$ is \Sexpr{r3(se5)}
+and the confidence interval is
+$
+\Sexpr{r3(b)} \pm 1.96 \times \Sexpr{r3(se5)} =
+(
+\Sexpr{r3(b - 1.96 * se5)},
+\Sexpr{r3(b + 1.96 * se5)}
+)
+$
+A $p$-value for the
+null hypothesis of no treatment effect ($\psi = 0$) can be computed using
+a normal approximation for the test statistic
+$z = \hat{\psi} / \textup{SE} = \Sexpr{round(z, 2)}$,
+giving $p = \Sexpr{r3(p)}$.
+
+
+\subsection{Other types of outcome}
+
+The framework of the package is very flexible. For example,
+different outcomes can be handled by modifying the outcome models.
+We shall illustrate this possibility by analyzing dichotomous, ordinal, and
+time to event data. We shall, however, model subgroup membership in the same
+way. Therefore, the subgroup model need not be modified.
+
+
+\subsubsection{Dichotomous outcomes}
+
+To exemplify dichotomous outcomes, we shall use logistic regression:
+$$
+\left \{
+\begin{aligned}
+\logit P(Y = 1) &= \al_0, \qquad &G = 0, \\
+\logit P(Y = 1) &= \al_1 + \psi R, \qquad &G = 1. \\
+\end{aligned}
+\right.
+$$
+We set $\al_0 = \logit 0.2$ and $\al_1 = \al_0 + 0.4$, giving
+event rates of 20\% and 27.16\% for $G = 0$ and $G = 1$, respectively.
+With $\psi = -0.4$, this again means that treatable patients become similar to
+untreatable ones if given treatment.
+
+Data can now be generated as follows:
+\begin{routput}[H]
+<<"dich-data">>=
+set.seed(12345)
+df_true <- data.frame(
+    g = rbinom(n, size = 1, prob = 0.25),
+    rand = rbinom(n = n, size = 1, prob = 0.5))
+df_true$y <- ifelse((df_true$g == 0) | (df_true$rand == 1),
+    rbinom(n, size = 1, prob = 0.2),
+    rbinom(n, size = 1, prob = 0.2716446))
+# Make subgroup latent.
+df_obs <- df_true
+df_obs$g <- ifelse(df_obs$rand == 1, df_obs$g, NA)
+head(df_obs)
+@
+\end{routput}
+
+\noindent
+We also create the outcome models:
+\begin{routput}[H]
+<<dich-outcome-models>>=
+model0 = latent_glm(
+    formula = (y ~ 1),
+    family_name = "binomial",
+    link = "logit",
+    coef_names = "alpha0")
+model1 = latent_glm(
+    formula = (y ~ rand),
+    family_name = "binomial",
+    link = "logit",
+    coef_names = c("alpha1", "psi"))
+@
+\end{routput}
+
+\noindent
+In the absence of residual variances, there are now only four model parameters.
+The analysis is done just like in the former example:
+\begin{routput}[H]
+<<dich-analysis>>=
+res <- latent_main(
+    data = df_obs,
+    modelS = modelS,
+    model0 = model0,
+    model1 = model1)
+res
+@
+\end{routput}
+
+<<echo = F>>=
+b <- res$theta["theta1.psi"]
+se <- sqrt(diag(solve(res$info)))[4]
+@
+
+\noindent
+From this, we can infer that the point estimate is
+$\hat{\psi} = \Sexpr{r3(b)}$
+with standard error~\Sexpr{r3(se)}. Confidence intervals and $p$-values
+can now be computed as before.
+
+
+\subsubsection{Ordinal outcomes}
+\label{sec:ordinal_outcomes}
+
+We now consider ordinal outcome data, analyzed using proportional odds models,
+for technical details, see \cite{lindhagen_ostlund}.
+We generate outcome data with four levels. The intercepts
+$(\al_1, \al_2, \al_3)$ of the proportional odds model are chosen so that
+the outcome probabilities for untreated patients are
+$(0.2, 0.4, 0.3, 0.1)$ in both subgroups.
+To this we add a an offset of +0.4 on the logit scale for treatable patients,
+together with a
+treatment effect of $\psi = -0.4$. This means that treatable patients have
+larger outcomes than untreatable ones unless they are treated, in which case
+their outcomes are similar.
+\begin{routput}[H]
+<<"ord-data">>=
+set.seed(12345)
+df_true <- data.frame(
+    g = rbinom(n, size = 1, prob = 0.25),
+    rand = rbinom(n = n, size = 1, prob = 0.5))
+## Generate outcome.
+logit <- function(p) log(p / (1 - p)) # Classical logit function.
+alpha <- -logit(c(0.2, 0.6, 0.9)) # Outcome probabilities (0.2, 0.4, 0.3, 0.1).
+# Treatable patients have larger outcomes, unless treated.
+lp <- ifelse((df_true$g == 0) | (df_true$rand == 0), 0, -0.4)
+u <- runif(n) # A bunch of random numbers
+y <- rep(NA, n) # The outcome, defined below.
+for (k in 1:3) {
+    p.le.k = 1 / (1 + exp(alpha[k] + lp)) # P(y <= k).
+    y <- ifelse(is.na(y) & (u < p.le.k), k, y)
+}
+y <- ifelse(is.na(y), 4, y) # If y is still NA, it has to be 4.
+df_true$y <- factor(y, ordered = T)
+# Make subgroup latent.
+df_obs <- df_true
+df_obs$g <- ifelse(df_obs$rand == 1, df_obs$g, NA)
+head(df_obs)
+@
+\end{routput}
+
+\noindent
+We also create the outcome models:
+\begin{routput}[H]
+<<ord-outcome-models>>=
+model0 <- latent_ordinal(
+    formula = (y ~ 1),
+    K = 4,
+    coef_names = NULL)
+model1 = latent_ordinal(
+    formula = (y ~ rand),
+    K = 4,
+    coef_names = "psi")
+@
+\end{routput}
+
+\noindent
+We don't have to give names to the intercepts, they will automatically be
+named \texttt{alpha1}, \texttt{alpha2} etc.
+We can now run the analysis as usual:
+\begin{routput}[H]
+<<ord-analysis>>=
+res <- latent_main(
+    data = df_obs,
+    modelS = modelS,
+    model0 = model0,
+    model1 = model1)
+res
+@
+\end{routput}
+
+<<echo = F>>=
+b <- res$theta["theta1.psi"]
+se <- sqrt(diag(solve(res$info)))[8]
+@
+
+\noindent
+Since each outcome model now has three intercepts, there are now
+$1 + 3 + 4 = 8$~model parameters altogether. Apart form this, everything works
+as usual. The estimated treatment effect is
+$\hat{\psi} = \Sexpr{r3(b)}$
+with standard error~\Sexpr{r3(se)}.
+
+
+
+\subsubsection{Time to event outcomes}
+
+Finally, we shall give an example of time to event data, analyzed
+using the flexible spline proportional hazards model of Royston
+and Parmar. Again, we refer to \cite{lindhagen_ostlund} for details.
+
+We shall use three knots for the spline, placed at times $t = 0.2$, 0.6, and~1.
+Since the Royston--Parmar model uses a spline in $\log t$, the actual knots
+will reside at the logarithm of this. Data are then generated by choosing
+spline coefficients $\gamma_j$, $j = 0, 1, 2$, that yield a
+3-knot approximatation of a Gompertz distribution with shape~1.5 and rate~1.
+Offset for treatable patients and treatment effect ($\psi = -0.4$) are handled
+similarly to Section~\ref{sec:ordinal_outcomes} for ordinal outcomes.
+Finally, event times are randomly censored according to the same
+distribution, meaning that half of the data points will be censored.
+
+\begin{routput}[H]
+<<"surv-data">>=
+set.seed(12345)
+df_true <- data.frame(
+    g = rbinom(n, size = 1, prob = 0.25),
+    rand = rbinom(n = n, size = 1, prob = 0.5))
+## Generate outcome.
+knots <- log(c(0.2, 0.6, 1))
+gamma <- c(-0.08425288,  0.93050973, -0.89444548) # Approximate Gompertz.
+lp <- ifelse((df_true$g == 0) | (df_true$rand == 0), 0, 0.4)
+# Treatment modifies gamma0 (constant spline term).
+gamma_mat <- matrix(rep(gamma, times = n), nrow = n, byrow = T)
+gamma_mat[, 1] <- gamma_mat[, 1] + lp
+# Simulate outcome times y and censoring times from the same distribution.
+y_time_true <- flexsurv::rsurvspline(n = n,
+    gamma = gamma_mat, knots = knots,
+    scale = "hazard", timescale = "log")
+cns_time <- flexsurv::rsurvspline(n = n,
+    gamma = gamma_mat, knots = knots,
+    scale = "hazard", timescale = "log")
+# Censor data.
+y_time_obs <- pmin(y_time_true, cns_time)
+y_obs <- (y_time_true < cns_time)
+df_true$y <- survival::Surv(y_time_obs, y_obs)
+# Make subgroup latent.
+df_obs <- df_true
+df_obs$g <- ifelse(df_obs$rand == 1, df_obs$g, NA)
+head(df_obs)
+@
+\end{routput}
+
+\noindent
+We also create the outcome models:
+\begin{routput}[H]
+<<surv-outcome-models>>=
+model0 <- latent_flexsurv_ph(
+    formula = (y ~ 1),
+    knots = knots,
+    coef_names = NULL)
+model1 <- latent_flexsurv_ph(
+    formula = (y ~ rand),
+    knots = knots,
+    coef_names = "psi")
+@
+\end{routput}
+
+\noindent
+The spline coeffocients will automatically be named
+\texttt{gamma0}, \texttt{gamma1} etc.
+Finally, we run the analysis:
+\begin{routput}[H]
+<<surv-analysis>>=
+res <- latent_main(
+    data = df_obs,
+    modelS = modelS,
+    model0 = model0,
+    model1 = model1)
+res
+@
+\end{routput}
+
+<<echo = F>>=
+b <- res$theta["theta1.psi"]
+se <- sqrt(diag(solve(res$info)))[8]
+@
+
+\noindent
+Again, there are $1 + 3 + 4 = 8$ parameters, this time owing to the fact that
+we chose three spline knots. The estimated treatment effect is
+$\hat{\psi} = \Sexpr{r3(b)}$
+with standard error~\Sexpr{r3(se)}.
+
+
+\subsection{Adding covariates}
+
+An important property of our framework is that each of the models can
+be modified independently of the others. For example, we may add covariates
+to the models in order to increase the power. This idea is well-known for the
+outcome of a randomized trial, but is also very natural for the subgroup. For
+example, it might be that men are more often treatable than women. By adding sex
+to the subgroup model, we are less ignorant about the subgroup status of the
+patients, and hence take a step in the direction of fully identifying the
+subgroup, which should increase power.
+
+We shall illustrate these ideas by returning to the basic example of
+Section~\ref{sec:basic_example} with a numerical outcome. Assume that
+two covariates $x_g$ and $x_y$ have been identified, that are predictive of
+subgroup membership and the outcome, respectively. We can then modify the
+models (\ref{eq:models_basic}):
+$$
+\left \{
+\begin{aligned}
+\logit P(G = 1) &= \al_S + \be_g x_g \\
+Y &= \al_0 + \be_0 x_y + \eps, \qquad &G = 0, \\
+Y &= \al_1 + \be_1 x_y + \psi R + \eps, \qquad &G = 1. \\
+\end{aligned}
+\right.
+$$
+For the simulation, we let $x_g$ and $x_y$ be independent standard
+normal and set $\be_g = \be_0 = \be_1 = 0.5$. Due to non-collapsibility,
+$\al_S$ needs to be modified to keep the prevalence at 25\%. It turns out that
+the correct value is -1.158 rather than $\logit 0.25 = -1.099$ as in
+Section~\ref{sec:basic_example}.
+
+We can now generated data:
+\begin{routput}[H]
+<<"cov-data">>=
+set.seed(12345)
+df_true <- data.frame(
+    xg = rnorm(n),
+    xy = rnorm(n),
+    rand = rbinom(n = n, size = 1, prob = 0.5))
+# Subgroup
+expit <- function(x) exp(x) / (1 + exp(x))
+df_true$g <- rbinom(n, size = 1, prob = expit(-1.158 + 0.25 * df_true$xg))
+# Outcome.
+df_true$y <- ifelse(df_true$g == 0,
+    rnorm(n, mean = 100 + 0.5 * df_true$xy, sd = 2),
+    rnorm(n, mean = 100.4 + 0.5 * df_true$xy - 0.4 * df_true$rand, sd = 2.5))
+df_obs <- df_true
+df_obs$g <- ifelse(df_obs$rand == 1, df_obs$g, NA)
+head(df_obs)
+@
+\end{routput}
+
+\noindent
+Next, we create the models:
+\begin{routput}[H]
+<<cov-models>>=
+modelS <- latent_glm(
+    formula = (g ~ xg),
+    family_name = "binomial",
+    link = "logit",
+    coef_names = c("alphaS", "betaG"))
+model0 <- latent_linear(
+    formula = (y ~ xy),
+    coef_names = c("alpha0", "beta0"))
+model1 <- latent_linear(
+    formula = (y ~ xy + rand),
+    coef_names = c("alpha1", "beta1", "psi"))
+@
+\end{routput}
+
+\noindent
+Note that there are now more parameters to be named.
+The rest of the analysis follows the by now well-trodden path:
+\begin{routput}[H]
+<<cov-analysis>>=
+res <- latent_main(
+    data = df_obs,
+    modelS = modelS,
+    model0 = model0,
+    model1 = model1)
+res
+@
+\end{routput}
+
+<<echo = F>>=
+b <- res$theta["theta1.psi"]
+se <- sqrt(diag(solve(res$info)))[8]
+@
+
+\noindent
+Naturally, adding covariates results in more model parameters
+(9~of them this time), but otherwise things are the same.
+The estimated treatment effect is
+$\hat{\psi} = \Sexpr{r3(b)}$
+with standard error~\Sexpr{r3(se)}.
+
+
+
+\begin{thebibliography}{99}
+
+\bibitem{lindhagen_ostlund} L.\ Lindhagen and O.\ \"Ostlund,
+A modular framework for treatment effect estimation in latent subgroups,
+2022, manuscript.
+
+\bibitem{help_mi} R. Hofmann,
+{HEL}icobacter {P}ylori Screening to Prevent Gastrointestinal Bleeding in {MI}
+Patients ({HELP-MI}),
+\texttt{https://clinicaltrials.gov/show/NCT05024864},
+Accessed 2022--06--09.
+
+
+
+\end{thebibliography}
+
+\end{document}
+
+
+
+
+
+
+
+\end{document}
