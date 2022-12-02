@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Lindhagen"
+  given-names: "Lars"
+  orcid: "https://orcid.org/0000-0003-1718-7820"
+title: "latent"
+version: 1.0.0
+date-released: 2020-12-02
+url: "https://github.com/lindhagen/latent"
