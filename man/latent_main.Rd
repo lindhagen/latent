@@ -53,5 +53,12 @@ Main function for performing effect estimation in latent
 subgroups.
 }
 \details{
-For details on the usage of this function, see the package vignette.
+Dichotomous variables should be 0/1 coded. For the latent subgroup,
+0 will correspond to untreatable patients, and 1 to treatable ones.
+
+To avoid name conflicts, the variable names in \code{data} should
+not start with a dot (\code{.}). The reason is that this function will add
+some variables for internal use, all starting with a dot.
+
+For further details on the usage of this function, see the package vignette.
 }
