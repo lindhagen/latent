@@ -1,7 +1,7 @@
 Package: latent
 Type: Package
 Title: Effect estimation in latent subgroups
-Version: 1.0.0
+Version: 1.0.1
 Author: Lars Lindhagen
 Maintainer: Lars Lindhagen <lars.lindhagen@ucr.uu.se>
 Description: A modular framework for effect estimation in latent subgroups.
@@ -17,4 +17,4 @@ Imports:
     magrittr,
     flexsurv
 VignetteBuilder: knitr
-RoxygenNote: 7.2.1
+RoxygenNote: 7.2.3
