@@ -43,7 +43,7 @@ spline_basis_fcn <- function(x, j, knots, deriv) {
     ret <- p3(x, k_j1, deriv) -
       lambda_j1 * p3(x, k_min, deriv) -
       (1 - lambda_j1) * p3(x, k_max, deriv)
- }
+  }
   return (ret)
 }
 

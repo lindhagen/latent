@@ -23,16 +23,8 @@
 latent_flexsurv_ph <- function(formula, knots, coef_names = NULL) {
   nk <- length(knots) # Number of knots (internal + boundary).
   gamma_names <- sprintf("gamma%d", 0:(nk - 1))
-  # No-intercept formula. Useful e.g. for linear predictors.
-  if (length(all.vars(formula)) > 1) {
-    formula0 <- formula %>% update(. ~ -1 + .)
-  } else {
-    # Formula has no covariates (e.g. y ~ 1). Replace it by (y ~ 1 - 1)
-    # to avoid an intercept term in the model matrix.
-    formula0 <- formula %>% update(. ~ -1)
-  }
   # latent_flexsurv_ph object.
-  obj <- list(formula = formula, formula0 = formula0, knots = knots,
+  obj <- list(formula = formula, knots = knots,
     gamma_names = gamma_names, coef_names = coef_names)
   class(obj) <- "latent_flexsurv_ph"
   return (obj)
@@ -146,7 +138,7 @@ latent_simulate.latent_flexsurv_ph <- function(obj, theta, data) {
   theta %<>% unlist
   gamma <- theta[1:nk]
   beta <- theta[-(1:nk)]
-  linpred = latent_linpred(obj$formula0, beta, data)
+  linpred = latent_flexsurv_ph_linpred(obj$formula, beta, data)
 
   # Matrix of gamma values.
   gamma_mat <- gamma %>%
@@ -192,9 +184,8 @@ latent_flexsurv_ph_prepare_diff <- function(obj, theta, data) {
     y_time = data[[yn]][, "time"], # Follow-up time.
     y_evt = data[[yn]][, "status"], # Event indicator (TRUE/FALSE).
     log_y_time = log(y_time),
-
     # Hazard etc.
-    linpred = latent_linpred(obj$formula0, beta, data), # Linear predictor.
+    linpred = latent_flexsurv_ph_linpred(obj$formula, beta, data), # Linear predictor.
     log_cumhaz = spline_fcn(log_y_time, gamma, knots) + linpred, # log(H).
     cumhaz = exp(log_cumhaz), # H.
     hazard = cumhaz * spline_fcn_deriv(log_y_time, gamma, knots)
@@ -205,9 +196,14 @@ latent_flexsurv_ph_prepare_diff <- function(obj, theta, data) {
   }
 
   # x and spline-b matrices.
-  mm <- model.matrix(obj$formula0, data = data)
+  mm <- model.matrix(obj$formula, data = data)
   spline_b <- spline_basis_fcn_arr(dd$log_y_time, knots)
   spline_bp <- spline_basis_fcn_arr(dd$log_y_time, knots, deriv = T)
+
+  # Since there is no intercept in beta, we need to remove the intercept from
+  # the model matrix.
+  stopifnot(names(mm)[1] == "(Intercept)") # Safety check.
+  mm <- mm[, -1, drop = F] # Remove the intercept while retaining marix format.
 
   # Return everything as a list.
   ret <- list(
@@ -216,5 +212,14 @@ latent_flexsurv_ph_prepare_diff <- function(obj, theta, data) {
     dd = dd
   )
 
+  return (ret)
+}
+
+# When computing linear predictors, the model matrix will contain an intercept,
+# which is not present in the regression coefficients from flexsurvspline.
+# We therefore augment the coefficients beta with a synthetic leading zero.
+latent_flexsurv_ph_linpred <- function(formula, beta, data) {
+  beta_0 <- c(0, beta)
+  ret <- latent_linpred(formula, beta_0, data)
   return (ret)
 }
