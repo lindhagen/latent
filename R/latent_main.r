@@ -45,6 +45,22 @@ latent_main <- function(data,
   loglik_conv_tol = 1e-5 # log-likelihood convergence criterion for EM.
 ) {
 
+  ### Check that there are no missing values in the variables to be used.
+  all_variables <- c(
+    # The outcome of the subgroup model is the latent subgroup, and is expected
+    # to have missing values!
+    modelS$formula %>% update(NULL ~ .) %>% all.vars,
+    # Check both outcome and covariates for the outcome models.
+    model0$formula %>% all.vars,
+    model1$formula %>% all.vars) %>%
+    unique
+  dd_test_missing <- data %>%
+    select(all_of(all_variables))
+  if (any(is.na(dd_test_missing))) {
+    stop("Missing values not allowed")
+  }
+
+
   ### Utility function: Enrich the given data set with pi/likelihood stuff.
   ### Model objects are global are variables.
   setup.likelihood.data <- function(data, theta) {
