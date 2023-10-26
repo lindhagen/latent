@@ -71,10 +71,11 @@ whereas $Y$ denotes the outcome, recorded after randomization.
 
 \subsection{The framework}
 
-The methods of the package rests on three statistical models, specified by the
+The methods of the package rests on three statistical (''plug-in'')
+models, specified by the
 user. The core of the package then performs ML estimation of the treatment
 effect in the latent subgroup, relying on the EM algorithm.
-The three models to be specified are the following:
+The three plug-in models to be specified are the following:
 \begin{enumerate}
 \item A subgroup model, modeling membership of the latent subgroup.
 \item An outcome model for untreatable patients ($G = 0$).
@@ -146,12 +147,13 @@ n <- 3000 # Number of patients.
 \end{routput}
 
 \noindent
-Next, we create the ''true'' data, containing the latent subgroup.
+Next, we create the ''true'' data, containing information on the latent
+subgroup.
 \begin{routput}[H]
 <<"basic-true-data">>=
 df_true <- data.frame(
     g = rbinom(n, size = 1, prob = 0.25), # Latent subgroup (still observed).
-    rand = rbinom(n = n, size = 1, prob = 0.5)) # Randomization.
+    rand = rbinom(n, size = 1, prob = 0.5)) # Randomization.
 # Outcome.
 df_true$y <- ifelse(df_true$g == 0,
     rnorm(n, mean = 100, sd = 2),
@@ -175,12 +177,12 @@ head(df_obs)
 \noindent
 The subgroup is now missing whenever $R = 0$.
 
-We now set up the three statistical models required by the
+We now set up the three plug-in models required by the
 framework~(\ref{eq:models_basic}).
 We begin with the logistic regression model for subgroup membership:
 \begin{routput}[H]
 <<basic-subgroup-model>>=
-modelS <- latent_glm(
+modS <- latent_glm(
     formula = (g ~ 1),
     family_name = "binomial",
     link = "logit",
@@ -199,10 +201,10 @@ by \texttt{alphaS}. The residual variance $\sig^2$ will automatically be named
 Next, we add the two linear models for the outcome.
 \begin{routput}[H]
 <<basic-outcome-models>>=
-model0 <- latent_linear(
+mod0 <- latent_linear(
     formula = (y ~ 1),
     coef_names = "alpha0")
-model1 <- latent_linear(
+mod1 <- latent_linear(
     formula = (y ~ rand),
     coef_names = c("alpha1", "psi"))
 @
@@ -221,9 +223,9 @@ three models, together with the data, to the package main function:
 <<basic-analysis>>=
 res <- latent_main(
     data = df_obs,
-    modelS = modelS,
-    model0 = model0,
-    model1 = model1)
+    modelS = modS,
+    model0 = mod0,
+    model1 = mod1)
 res
 @
 \end{routput}
@@ -359,12 +361,12 @@ head(df_obs)
 We also create the outcome models:
 \begin{routput}[H]
 <<dich-outcome-models>>=
-model0 = latent_glm(
+mod0 <- latent_glm(
     formula = (y ~ 1),
     family_name = "binomial",
     link = "logit",
     coef_names = "alpha0")
-model1 = latent_glm(
+mod1 <- latent_glm(
     formula = (y ~ rand),
     family_name = "binomial",
     link = "logit",
@@ -379,9 +381,9 @@ The analysis is done just like in the former example:
 <<dich-analysis>>=
 res <- latent_main(
     data = df_obs,
-    modelS = modelS,
-    model0 = model0,
-    model1 = model1)
+    modelS = modS,
+    model0 = mod0,
+    model1 = mod1)
 res
 @
 \end{routput}
@@ -442,11 +444,11 @@ head(df_obs)
 We also create the outcome models:
 \begin{routput}[H]
 <<ord-outcome-models>>=
-model0 <- latent_ordinal(
+mod0 <- latent_ordinal(
     formula = (y ~ 1),
     K = 4,
     coef_names = NULL)
-model1 = latent_ordinal(
+mod1 <- latent_ordinal(
     formula = (y ~ rand),
     K = 4,
     coef_names = "psi")
@@ -461,9 +463,9 @@ We can now run the analysis as usual:
 <<ord-analysis>>=
 res <- latent_main(
     data = df_obs,
-    modelS = modelS,
-    model0 = model0,
-    model1 = model1)
+    modelS = modS,
+    model0 = mod0,
+    model1 = mod1)
 res
 @
 \end{routput}
@@ -533,11 +535,11 @@ head(df_obs)
 We also create the outcome models:
 \begin{routput}[H]
 <<surv-outcome-models>>=
-model0 <- latent_flexsurv_ph(
+mod0 <- latent_flexsurv_ph(
     formula = (y ~ 1),
     knots = knots,
     coef_names = NULL)
-model1 <- latent_flexsurv_ph(
+mod1 <- latent_flexsurv_ph(
     formula = (y ~ rand),
     knots = knots,
     coef_names = "psi")
@@ -552,9 +554,9 @@ Finally, we run the analysis:
 <<surv-analysis>>=
 res <- latent_main(
     data = df_obs,
-    modelS = modelS,
-    model0 = model0,
-    model1 = model1)
+    modelS = modS,
+    model0 = mod0,
+    model1 = mod1)
 res
 @
 \end{routput}
@@ -627,15 +629,15 @@ head(df_obs)
 Next, we create the models:
 \begin{routput}[H]
 <<cov-models>>=
-modelS <- latent_glm(
+modS <- latent_glm(
     formula = (g ~ xg),
     family_name = "binomial",
     link = "logit",
     coef_names = c("alphaS", "betaG"))
-model0 <- latent_linear(
+mod0 <- latent_linear(
     formula = (y ~ xy),
     coef_names = c("alpha0", "beta0"))
-model1 <- latent_linear(
+mod1 <- latent_linear(
     formula = (y ~ xy + rand),
     coef_names = c("alpha1", "beta1", "psi"))
 @
@@ -648,9 +650,9 @@ The rest of the analysis follows the by now well-trodden path:
 <<cov-analysis>>=
 res <- latent_main(
     data = df_obs,
-    modelS = modelS,
-    model0 = model0,
-    model1 = model1)
+    modelS = modS,
+    model0 = mod0,
+    model1 = mod1)
 res
 @
 \end{routput}
