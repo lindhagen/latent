@@ -37,7 +37,7 @@ opts_chunk$set(include = TRUE,
 
 This vignette gives a brief description of the package \texttt{latent},
 with examples of how to use it. Below follows a short summary of the setting,
-for details, we refer to \cite{lindhagen_ostlund} and the
+for details, we refer to \cite{lindhagen_et_al} and the
 references therein.
 
 Consider a randomized trial, where patients are randomized to a screening
@@ -81,11 +81,11 @@ The three models to be specified are the following:
 \item An outcome model for treatable patients ($G = 1$).
 \end{enumerate}
 The subgroup model has a dichotomous outcome $G$, whereas the outcome for the
-other models is whatever outcome $Y$ is recorded in the study. It can for
+other models is whatever outcome $Y$ is recorded in the trial It can for
 example be numerical, dichotmous or a time to event outcome.
-All models can use any number of covariates as predictors of subgroup or outcome
-to increase the precision. However, the model for treatable patients will
-always contain randomization, which the model for untreatable patients
+All models can use any number of covariates as predictors of treatability or
+outcome to increase the precision. However, the model for treatable patients
+will always contain randomization, which the model for untreatable patients
 will not.
 
 
@@ -95,7 +95,7 @@ We shall illustrate the usage of the package by simulating and analyzing data
 in a variety of settings. All simulations will use correctly specified models.
 In other words, we will generate data from the same models as we later use to
 analyze them. Some example of the performance of the framework under
-misspecified models can be found in \cite{lindhagen_ostlund}.
+misspecified models can be found in \cite{lindhagen_et_al}.
 
 
 \subsection{A basic example}
@@ -128,8 +128,8 @@ logit025 <- logit(0.25)
 @
 
 As for the parameter values, we follow one of the simulations in
-\cite{lindhagen_ostlund}. Thus, we shall generate data on $n = 3000$ patients,
-with a subgroup prevalence of 25\%.
+\cite{lindhagen_et_al}. Thus, we shall generate data on $n = 3000$ patients,
+with a treatability prevalence of 25\%.
 Hence, $\al_S = \logit 0.25 = \Sexpr{r3(logit025)}$.
 Moreover, we let $\al_0 = 100$,
 $\al_1 = 100.4$, $\sig_0 = 2$, and $\sig_1$ = 2.5. Finally, the treatmant
@@ -163,7 +163,7 @@ head(df_true)
 \noindent
 In reality, the subgroup $G$ is only observed in the screening arm ($R = 1$).
 So we remove the information on it in the control arm, giving us the analysis
-database that we would actually observe in the study:
+database that we would actually observe in the trial:
 \begin{routput}[H]
 <<basic-remove-latent-subgroup>>=
 df_obs <- df_true
@@ -189,8 +189,8 @@ modelS <- latent_glm(
 \end{routput}
 
 \noindent
-Note that the outcome of this model is the subgroup $G$, coded as the variable
-\texttt{g}. We have not added
+Note that the outcome of this model is membership of the subgroup $G$, coded as
+the variable \texttt{g}. We have not added
 any covariates, hence the trivial analysis formula \verb+g ~ 1+.
 We conveniently choose to denote the single regression coefficient $\al_S$
 by \texttt{alphaS}. The residual variance $\sig^2$ will automatically be named
@@ -402,7 +402,7 @@ can now be computed as before.
 \label{sec:ordinal_outcomes}
 
 We now consider ordinal outcome data, analyzed using proportional odds models,
-for technical details, see \cite{lindhagen_ostlund}.
+for technical details, see \cite{lindhagen_et_al}.
 We generate outcome data with four levels. The intercepts
 $(\al_1, \al_2, \al_3)$ of the proportional odds model are chosen so that
 the outcome probabilities for untreated patients are
@@ -423,7 +423,7 @@ logit <- function(p) log(p / (1 - p)) # Classical logit function.
 alpha <- -logit(c(0.2, 0.6, 0.9)) # Outcome probabilities (0.2, 0.4, 0.3, 0.1).
 # Treatable patients have larger outcomes, unless treated.
 lp <- ifelse((df_true$g == 0) | (df_true$rand == 0), 0, -0.4)
-u <- runif(n) # A bunch of random numbers
+u <- runif(n) # A bunch of random numbers.
 y <- rep(NA, n) # The outcome, defined below.
 for (k in 1:3) {
     p.le.k = 1 / (1 + exp(alpha[k] + lp)) # P(y <= k).
@@ -486,7 +486,7 @@ with standard error~\Sexpr{r3(se)}.
 
 Finally, we shall give an example of time to event data, analyzed
 using the flexible spline proportional hazards model of Royston
-and Parmar. Again, we refer to \cite{lindhagen_ostlund} for details.
+and Parmar. Again, we refer to \cite{lindhagen_et_al} for details.
 
 We shall use three knots for the spline, placed at times $t = 0.2$, 0.6, and~1.
 Since the Royston--Parmar model uses a spline in $\log t$, the actual knots
@@ -575,11 +575,11 @@ with standard error~\Sexpr{r3(se)}.
 
 An important property of our framework is that each of the models can
 be modified independently of the others. For example, we may add covariates
-to the models in order to increase the power. This idea is well-known for the
+in order to increase the power. This idea is well-known for the
 outcome of a randomized trial, but is also very natural for the subgroup. For
 example, it might be that men are more often treatable than women. By adding sex
 to the subgroup model, we are less ignorant about the subgroup status of the
-patients, and hence take a step in the direction of fully identifying the
+patients, and hence take a step in the direction of identifying the
 subgroup, which should increase power.
 
 We shall illustrate these ideas by returning to the basic example of
@@ -668,12 +668,11 @@ $\hat{\psi} = \Sexpr{r3(b)}$
 with standard error~\Sexpr{r3(se)}.
 
 
-
 \begin{thebibliography}{99}
 
-\bibitem{lindhagen_ostlund} L.\ Lindhagen and O.\ \"Ostlund,
+\bibitem{lindhagen_et_al} L.\ Lindhagen, H.\ Garmo, and O.\ \"Ostlund,
 A modular framework for treatment effect estimation in latent subgroups,
-2022, manuscript.
+2023, manuscript.
 
 \bibitem{help_mi} R. Hofmann,
 {HEL}icobacter {P}ylori Screening to Prevent Gastrointestinal Bleeding in {MI}
@@ -681,16 +680,7 @@ Patients ({HELP-MI}),
 \texttt{https://clinicaltrials.gov/show/NCT05024864},
 Accessed 2022--06--09.
 
-
-
 \end{thebibliography}
-
-\end{document}
-
-
-
-
-
 
 
 \end{document}
